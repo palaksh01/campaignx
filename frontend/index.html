@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>CampaignX - SuperBFSI Email Campaigns</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f5f7fb;
+        color: #111827;
+      }
+      header {
+        padding: 1rem 2rem;
+        background: linear-gradient(90deg, #111827, #1f2937);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.25rem;
+      }
+      header span {
+        font-size: 0.9rem;
+        opacity: 0.8;
+      }
+      main {
+        padding: 1.5rem 2rem 2rem;
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 1.5rem;
+      }
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        background: white;
+        border-radius: 0.75rem;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+        padding: 1.25rem 1.5rem 1.5rem;
+        border: 1px solid #e5e7eb;
+      }
+      .card h2 {
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+        font-size: 1rem;
+        color: #111827;
+      }
+      label {
+        font-size: 0.85rem;
+        display: block;
+        margin-bottom: 0.25rem;
+        color: #4b5563;
+      }
+      textarea,
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border-radius: 0.5rem;
+        border: 1px solid #d1d5db;
+        padding: 0.6rem 0.75rem;
+        font-family: inherit;
+        font-size: 0.9rem;
+        resize: vertical;
+      }
+      textarea:focus,
+      input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 1px #2563eb33;
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+      }
+      button {
+        border-radius: 999px;
+        border: none;
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      button.primary {
+        background: #2563eb;
+        color: white;
+      }
+      button.secondary {
+        background: #e5e7eb;
+        color: #111827;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: #eff6ff;
+        color: #1d4ed8;
+      }
+      .section-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      pre {
+        background: #0b1120;
+        color: #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        font-size: 0.75rem;
+        overflow: auto;
+        max-height: 260px;
+      }
+      .tag {
+        display: inline-flex;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        background: #f3f4f6;
+        color: #4b5563;
+      }
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      .metric {
+        background: #f9fafb;
+        border-radius: 0.5rem;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.8rem;
+      }
+      .metric span {
+        display: block;
+      }
+      .metric span.value {
+        font-weight: 600;
+        font-size: 0.85rem;
+      }
+      .status-bar {
+        font-size: 0.8rem;
+        color: #374151;
+        margin-top: 0.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>CampaignX</h1>
+        <span>Multi-agent email campaign optimizer for SuperBFSI</span>
+      </div>
+      <div class="pill">Hackathon MVP</div>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>1. Campaign brief</h2>
+        <label for="brief">Campaign brief (natural language)</label>
+        <textarea
+          id="brief"
+          rows="6"
+          placeholder="Example: Promote our new rewards credit card to existing high-value customers, highlight welcome bonus, low annual fee, and safety features..."
+        ></textarea>
+
+        <label for="cohortId" style="margin-top: 0.75rem">Customer cohort ID</label>
+        <input
+          id="cohortId"
+          placeholder="e.g. superbfsi_high_value_cc_customers (defaults to 'demo' if empty)"
+        />
+
+        <div class="actions">
+          <button class="primary" id="btnPlan">
+            Generate campaign plan
+          </button>
+          <button class="secondary" id="btnReset">
+            Reset
+          </button>
+        </div>
+
+        <div class="status-bar" id="statusText">Idle.</div>
+      </section>
+
+      <section class="card">
+        <div class="section-title">
+          <h2>2. Live status</h2>
+          <span class="tag" id="phaseTag">No campaign</span>
+        </div>
+        <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #4b5563;">
+          This panel reflects the current state of the latest campaign in the backend (planning → scheduled → optimized).
+        </div>
+        <div class="actions" style="margin-top: 0.75rem;">
+          <button class="primary" id="btnApproveInitial" disabled>
+            Approve & schedule initial
+          </button>
+          <button class="secondary" id="btnOptimize" disabled>
+            Fetch metrics & optimize
+          </button>
+          <button class="primary" id="btnApproveOptimized" disabled>
+            Approve & relaunch optimized
+          </button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-title">
+          <h2>Campaign strategy</h2>
+          <span class="tag">Segmentation · Send times · A/B plan</span>
+        </div>
+        <pre id="strategyPreview">// Strategy JSON will appear here after planning.</pre>
+      </section>
+
+      <section class="card">
+        <div class="section-title">
+          <h2>Email variants</h2>
+          <span class="tag">Subjects · Bodies · Rationale</span>
+        </div>
+        <pre id="contentPreview">// Email variant JSON will appear here after planning.</pre>
+
+        <h2 style="margin-top: 1.25rem;">Performance & optimization</h2>
+        <div id="metricsContainer">
+          <div class="metrics-grid">
+            <div class="metric">
+              <span>Open rate</span>
+              <span class="value" id="openRate">–</span>
+            </div>
+            <div class="metric">
+              <span>Click rate</span>
+              <span class="value" id="clickRate">–</span>
+            </div>
+          </div>
+        </div>
+        <pre id="optimizationPreview">// Metrics and optimization JSON will appear here after optimization.</pre>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+
