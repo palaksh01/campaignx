@@ -1,87 +1,148 @@
+import json
 import logging
 from typing import Any, Dict
 
 from models.schemas import (
     CampaignStrategy,
-    ContentGenerationResponse,
+    EmailContent,
+    EmailVariant,
     OptimizationResult,
     PerformanceMetrics,
 )
 from services.llm_service import LLMService
-
 
 logger = logging.getLogger("campaignx.optimization_agent")
 
 
 class OptimizationAgent:
     """
-    Agent responsible for analyzing performance metrics and proposing an
-    improved strategy and content.
+    Analyses post-send performance metrics and produces an improved strategy
+    and new email content for the follow-up campaign wave.
     """
 
     def __init__(self, llm_service: LLMService) -> None:
-        self.llm_service = llm_service
+        self.llm = llm_service
+
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
 
     def optimize(
         self,
         metrics: PerformanceMetrics,
-        current_strategy: CampaignStrategy,
-        current_content: ContentGenerationResponse,
+        strategy: CampaignStrategy,
+        content: EmailContent,
     ) -> OptimizationResult:
-        system_prompt = (
-            "You are an AI campaign optimizer for SuperBFSI. "
-            "You analyze performance metrics (open rate, click rate, micro-segments) "
-            "and propose an improved email strategy and content. "
-            "You must output JSON only, matching the described schema."
-        )
-
-        user_prompt = (
-            "Analyze the current campaign and metrics and propose an improved strategy and content.\n\n"
-            f"Current strategy JSON:\n{current_strategy.json()}\n\n"
-            f"Current content JSON:\n{current_content.json()}\n\n"
-            f"Performance metrics JSON:\n{metrics.json()}\n\n"
-            "Return a JSON object with keys: improved_strategy, improved_content, explanation, reasoning_log.\n"
-            "improved_strategy must match the CampaignStrategy-like structure with the same keys as before.\n"
-            "improved_content must match the ContentGenerationResponse-like structure (variants, explanation, reasoning_log).\n"
-            "Focus improvements on:\n"
-            "- Micro-segments with strong engagement: double down with more relevant messages.\n"
-            "- Micro-segments with weak engagement: adjust timing, simplify offers, clarify CTAs.\n"
-            "Preserve BFSI compliance and avoid aggressive or misleading language."
-        )
+        opened  = sum(1 for r in metrics.raw_data if r.get("opened"))
+        clicked = sum(1 for r in metrics.raw_data if r.get("clicked"))
+        total   = len(metrics.raw_data) or 1
+        open_rate  = opened  / total
+        click_rate = clicked / total
 
         logger.info(
-            "Optimizing campaign with metrics open_rate=%.3f click_rate=%.3f",
-            metrics.open_rate,
-            metrics.click_rate,
+            "OptimizationAgent: metrics  total=%d  open_rate=%.2f  click_rate=%.2f",
+            total, open_rate, click_rate,
         )
 
-        raw = self.llm_service.chat_json(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+        metrics_summary = {
+            "campaign_id": metrics.external_campaign_id,
+            "total_rows":  metrics.total_rows,
+            "open_rate":   round(open_rate, 4),
+            "click_rate":  round(click_rate, 4),
+            "sample_rows": metrics.raw_data[:30],
+        }
+
+        strategy_summary = {
+            "objective":         strategy.objective,
+            "key_messages":      strategy.key_messages,
+            "customer_segments": [
+                {"id": s.id, "name": s.name, "description": s.description}
+                for s in strategy.customer_segments
             ],
-            response_schema_hint="OptimizationResult JSON with improved_strategy and improved_content.",
-        )
+            "ab_test_plan": [
+                {"id": v.id, "name": v.name, "hypothesis": v.hypothesis}
+                for v in strategy.ab_test_plan
+            ],
+            "risk_constraints": strategy.risk_constraints,
+        }
 
-        logger.debug("Raw optimization JSON: %s", raw)
-        result = self._parse_optimization_result(raw)
-        logger.info("Optimization produced %d improved variants", len(result.improved_content.variants))
+        content_summary = {
+            "variants": [
+                {"id": v.id, "segment_id": v.segment_id, "subject": v.subject, "rationale": v.rationale}
+                for v in content.variants
+            ]
+        }
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an AI campaign optimizer for SuperBFSI, an Indian bank. "
+                    "Analyze performance metrics and produce an improved strategy and email content. "
+                    "Respond with a single JSON object only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Performance metrics:\n{json.dumps(metrics_summary, indent=2)}\n\n"
+                    f"Original strategy:\n{json.dumps(strategy_summary, indent=2)}\n\n"
+                    f"Original content:\n{json.dumps(content_summary, indent=2)}\n\n"
+                    "Return JSON with EXACTLY these keys:\n"
+                    "  improved_strategy (same shape as original strategy — all required fields)\n"
+                    "  improved_content  (object with: variants, explanation, reasoning_log)\n"
+                    "    • Each variant: id, segment_id, name, subject (≤200 chars), body_html (≤5000 chars), rationale\n"
+                    "    • Include CTA link to https://superbfsi.com/xdeposit/explore/\n"
+                    "  explanation       (string — what changed and why)\n"
+                    "  reasoning_log     (object)\n\n"
+                    "Focus: boost segments with low open/click rates by adjusting subject lines, "
+                    "timing, and offer framing. Maintain BFSI compliance."
+                ),
+            },
+        ]
+
+        raw = self.llm.chat_json(messages)
+        result = self._parse(raw)
+        logger.info(
+            "OptimizationAgent: done  improved_variants=%d",
+            len(result.improved_content.variants),
+        )
         return result
 
-    def _parse_optimization_result(self, data: Dict[str, Any]) -> OptimizationResult:
-        strategy_data: Dict[str, Any] = data.get("improved_strategy", {})
-        content_data: Dict[str, Any] = data.get("improved_content", {})
+    # ------------------------------------------------------------------
+    # Private
+    # ------------------------------------------------------------------
 
-        # Reuse the same structure as CampaignStrategy and ContentGenerationResponse.
-        # We use their .parse_obj methods for robust validation.
-        improved_strategy = CampaignStrategy.parse_obj(strategy_data)
-        improved_content = ContentGenerationResponse.parse_obj(content_data)
+    def _parse(self, d: Dict[str, Any]) -> OptimizationResult:
+        from agents.strategy_agent import StrategyAgent
+        from agents.content_agent import ContentAgent
+
+        strat_data    = d.get("improved_strategy", {})
+        content_data  = d.get("improved_content", {})
+
+        # Re-use the same robust parsers from the other agents
+        improved_strategy = StrategyAgent(self.llm)._parse(strat_data)
+
+        variants = [
+            EmailVariant(
+                id=v.get("id", ""),
+                segment_id=v.get("segment_id", ""),
+                name=v.get("name", ""),
+                subject=str(v.get("subject", ""))[:200],
+                body_html=str(v.get("body_html", ""))[:5000],
+                rationale=v.get("rationale", ""),
+            )
+            for v in content_data.get("variants", [])
+        ]
+        improved_content = EmailContent(
+            variants=variants,
+            explanation=content_data.get("explanation", ""),
+            reasoning_log=content_data.get("reasoning_log", {}),
+        )
 
         return OptimizationResult(
             improved_strategy=improved_strategy,
             improved_content=improved_content,
-            explanation=data.get("explanation", ""),
-            reasoning_log=data.get("reasoning_log", {}),
+            explanation=d.get("explanation", ""),
+            reasoning_log=d.get("reasoning_log", {}),
         )
-
-
