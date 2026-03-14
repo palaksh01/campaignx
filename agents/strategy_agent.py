@@ -127,6 +127,14 @@ class StrategyAgent:
     # Private
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _as_dict(item: Any, fallback_key: str = "") -> Dict[str, Any]:
+        """Coerce a list item to a dict — LLMs occasionally return bare strings."""
+        if isinstance(item, dict):
+            return item
+        text = str(item)
+        return {fallback_key: text} if fallback_key else {}
+
     def _parse(self, d: Dict[str, Any]) -> CampaignStrategy:
         segments = [
             CustomerSegment(
@@ -136,16 +144,22 @@ class StrategyAgent:
                 selection_criteria=s.get("selection_criteria", {}),
                 estimated_size=s.get("estimated_size"),
             )
-            for i, s in enumerate(d.get("customer_segments", []))
+            for i, s in enumerate(
+                self._as_dict(x, "name") for x in d.get("customer_segments", [])
+            )
         ]
 
         send_times = [
             SendTimeDecision(
                 segment_id=st.get("segment_id", ""),
-                strategy=st.get("strategy", ""),
-                send_window_ist=st.get("send_window_ist"),
+                strategy=st.get("strategy", st.get("segment_id", "")),
+                send_window_ist=st.get("send_window_ist", ""),
             )
-            for st in d.get("send_time_decisions", [])
+            for st in (
+                # strings → {"segment_id": text, "strategy": text, "send_window_ist": ""}
+                (x if isinstance(x, dict) else {"segment_id": str(x), "strategy": str(x), "send_window_ist": ""})
+                for x in d.get("send_time_decisions", [])
+            )
         ]
 
         ab_plan = [
@@ -156,16 +170,24 @@ class StrategyAgent:
                 target_segment_ids=v.get("target_segment_ids", []),
                 traffic_split=float(v.get("traffic_split", 0.5)),
             )
-            for i, v in enumerate(d.get("ab_test_plan", []))
+            for i, v in enumerate(
+                self._as_dict(x, "name") for x in d.get("ab_test_plan", [])
+            )
         ]
+
+        # key_messages / risk_constraints may be a list of strings or dicts
+        def _str_list(raw: Any) -> List[str]:
+            if not isinstance(raw, list):
+                return []
+            return [x if isinstance(x, str) else str(x) for x in raw]
 
         return CampaignStrategy(
             objective=d.get("objective", ""),
-            key_messages=list(d.get("key_messages", [])),
+            key_messages=_str_list(d.get("key_messages")),
             customer_segments=segments,
             send_time_decisions=send_times,
             ab_test_plan=ab_plan,
-            risk_constraints=list(d.get("risk_constraints", [])),
+            risk_constraints=_str_list(d.get("risk_constraints")),
             explanation=d.get("explanation", ""),
             reasoning_log=d.get("reasoning_log", {}),
         )

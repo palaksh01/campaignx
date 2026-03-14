@@ -590,6 +590,26 @@ textarea.edit:focus,input.edit:focus{
 
 /* ── divider ── */
 .divider{height:1px;background:var(--border);margin:20px 0}
+
+/* ── back button ── */
+.back-row{
+  display:flex;align-items:center;
+  padding:12px 0 4px;
+  margin-bottom:4px;
+}
+.btn-back{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 12px;
+  background:transparent;
+  border:1px solid var(--border2);
+  border-radius:99px;
+  font-family:'DM Mono',monospace;
+  font-size:10px;font-weight:500;
+  letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text3);cursor:pointer;
+  transition:all .15s;
+}
+.btn-back:hover{border-color:var(--border);color:var(--text2)}
 </style>
 </head>
 <body>
@@ -640,6 +660,9 @@ textarea.edit:focus,input.edit:focus{
 
   <!-- STEP 2: STRATEGY -->
   <div class="section" id="secStrategy">
+    <div class="back-row">
+      <button class="btn-back" id="btnBackToHero">← Back</button>
+    </div>
     <div class="card fade-in">
       <div class="card-label">Objective</div>
       <div class="card-title" id="strObjective"></div>
@@ -678,6 +701,9 @@ textarea.edit:focus,input.edit:focus{
 
   <!-- STEP 3: EMAILS -->
   <div class="section" id="secEmails">
+    <div class="back-row">
+      <button class="btn-back" id="btnBackToStrategy">← Back to Strategy</button>
+    </div>
     <div class="card fade-in">
       <div class="card-label">Email Variants</div>
       <div class="tab-row" id="emailTabRow"></div>
@@ -704,6 +730,9 @@ textarea.edit:focus,input.edit:focus{
 
   <!-- STEP 5: METRICS -->
   <div class="section" id="secMetrics">
+    <div class="back-row">
+      <button class="btn-back" id="btnBackToScheduled">← Back to Scheduled</button>
+    </div>
     <div class="card fade-in">
       <div class="card-label">Performance</div>
       <div class="metrics-row" id="metricsGrid"></div>
@@ -729,6 +758,9 @@ textarea.edit:focus,input.edit:focus{
 
   <!-- STEP 6: OPTIMIZED EMAILS -->
   <div class="section" id="secOptEmails">
+    <div class="back-row">
+      <button class="btn-back" id="btnBackToMetrics">← Back to Metrics</button>
+    </div>
     <div class="card fade-in">
       <div class="card-label">Optimized Variants</div>
       <div class="tab-row" id="optEmailTabRow"></div>
@@ -987,15 +1019,57 @@ async function runPlan(brief){
   }
 }
 
-// ── STEP 2 ──
-$("btnStrategyAccept").addEventListener("click",()=>{setPipe(2);showSec("secEmails");window.scrollTo({top:0,behavior:"smooth"});});
+// ── BACK BUTTONS ──
+$("btnBackToHero").addEventListener("click",()=>{
+  showSec(null);setPipe(-1);
+  $("pipeline").style.display="none";
+  $("hero").style.display="flex";
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+$("btnBackToStrategy").addEventListener("click",()=>{
+  setPipe(1);showSec("secStrategy");
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+$("btnBackToScheduled").addEventListener("click",()=>{
+  setPipe(3);showSec("secScheduled");
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+$("btnBackToMetrics").addEventListener("click",()=>{
+  showSec("secMetrics");
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+
+// ── STEP 2: strategy accept / regenerate ──
+$("btnStrategyAccept").addEventListener("click",()=>{
+  setPipe(2);showSec("secEmails");
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+
+// Regenerate strategy only — re-calls /plan, re-renders strategy cards,
+// also pre-renders fresh emails in background, stays on strategy page.
 $("btnStrategyRegen").addEventListener("click",async()=>{
   const edit=$("strategyEditArea").value.trim();
   const brief=S.originalBrief+(edit?"\n\nAdditional guidance:\n"+edit:"");
-  await runPlan(brief);
+  showLoader("Regenerating strategy…","StrategyAgent → ContentAgent");
+  setPipe(0);
+  try{
+    const data=await api("POST","/campaigns/plan",{brief});
+    S.planData=data;S.campaignId=data.campaign_id;
+    S.editedSubjects={};S.editedBodies={};
+    // Re-render strategy section
+    renderStrategy(data.strategy);
+    // Pre-render emails in background so they're ready when user accepts
+    renderEmails(data.content?.variants||[],"emailTabRow","emailTabPanels",S.editedSubjects,S.editedBodies);
+    hideLoader();setPipe(1);
+    showSec("secStrategy");
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){
+    hideLoader();setPipe(1);showSec("secStrategy");
+    showErr("Strategy regeneration failed: "+e.message);
+  }
 });
 
-// ── STEP 3 ──
+// ── STEP 3: approve / regenerate emails only ──
 $("btnApprove").addEventListener("click",async()=>{
   showLoader("Scheduling campaign…","Calling CampaignX API");
   try{
@@ -1011,57 +1085,80 @@ $("btnApprove").addEventListener("click",async()=>{
     showSec("secScheduled");window.scrollTo({top:0,behavior:"smooth"});
   }catch(e){hideLoader();showSec("secEmails");showErr("Scheduling failed: "+e.message);}
 });
-$("btnEmailRegen").addEventListener("click",async()=>{await runPlan(S.originalBrief);});
 
-// ── STEP 4 ──
+// Regenerate emails only — re-calls /plan, re-renders email variants only,
+// stays on email page. Does NOT touch strategy cards.
+$("btnEmailRegen").addEventListener("click",async()=>{
+  showLoader("Regenerating email variants…","ContentAgent");
+  try{
+    const data=await api("POST","/campaigns/plan",{brief:S.originalBrief});
+    S.planData=data;S.campaignId=data.campaign_id;
+    S.editedSubjects={};S.editedBodies={};
+    renderEmails(data.content?.variants||[],"emailTabRow","emailTabPanels",S.editedSubjects,S.editedBodies);
+    hideLoader();setPipe(2);
+    showSec("secEmails");
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){hideLoader();showSec("secEmails");showErr("Email regeneration failed: "+e.message);}
+});
+
+// helper — fetch metrics and populate secMetrics in place
+async function fetchAndRenderMetrics(){
+  const data=await api("GET",`/campaigns/${S.campaignId}/metrics`);
+  S.metricsData=data;
+  const ms=data.metrics_summary||{};
+  const grid=$("metricsGrid");grid.innerHTML="";
+  [["Open Rate",pct(ms.open_rate),rateClass(ms.open_rate,.25,.10)],
+   ["Click Rate",pct(ms.click_rate),rateClass(ms.click_rate,.08,.03)],
+   ["Total Sent",(ms.total_rows||0).toLocaleString(),"val-neutral"]]
+  .forEach(([lbl,val,cls])=>grid.appendChild(el("div",{class:"metric-card"},[
+    el("div",{class:`metric-val ${cls}`},[val]),
+    el("div",{class:"metric-lbl"},[lbl]),
+  ])));
+  const opt=data.optimization||{};
+  const is=opt.improved_strategy||{};
+  $("optObjective").textContent=is.objective||"";
+  const os=$("optSegments");os.innerHTML="";
+  (is.customer_segments||[]).forEach(s=>os.appendChild(el("span",{class:"pill green"},[s.name||s.id])));
+  const oa=$("optAB");oa.innerHTML="";
+  (is.ab_test_plan||[]).forEach((v,i)=>oa.appendChild(el("div",{class:"ab-card"},[
+    el("div",{class:"ab-tag"},[`Optimized ${String.fromCharCode(65+i)}`]),
+    el("div",{class:"ab-name"},[v.name||v.id]),
+    el("div",{class:"ab-hypo"},[v.hypothesis||""]),
+  ])));
+  $("optEditArea").value=`Explanation: ${opt.explanation||""}\nReasoning: ${JSON.stringify(opt.reasoning_log||{})}`;
+  S.editedOptSubjects={};S.editedOptBodies={};
+  renderEmails(opt.improved_content?.variants||[],"optEmailTabRow","optEmailTabPanels",S.editedOptSubjects,S.editedOptBodies);
+  return data;
+}
+
+// ── STEP 4: fetch metrics ──
 $("btnFetchMetrics").addEventListener("click",async()=>{
   showLoader("Fetching metrics…","Running OptimizationAgent");
   setPipe(4);
   try{
-    const data=await api("GET",`/campaigns/${S.campaignId}/metrics`);
-    S.metricsData=data;hideLoader();
-    const ms=data.metrics_summary||{};
-    const grid=$("metricsGrid");grid.innerHTML="";
-    [["Open Rate",pct(ms.open_rate),rateClass(ms.open_rate,.25,.10)],
-     ["Click Rate",pct(ms.click_rate),rateClass(ms.click_rate,.08,.03)],
-     ["Total Sent",(ms.total_rows||0).toLocaleString(),"val-neutral"]]
-    .forEach(([lbl,val,cls])=>grid.appendChild(el("div",{class:"metric-card"},[
-      el("div",{class:`metric-val ${cls}`},[val]),
-      el("div",{class:"metric-lbl"},[lbl]),
-    ])));
-    const opt=data.optimization||{};
-    const is=opt.improved_strategy||{};
-    $("optObjective").textContent=is.objective||"";
-    const os=$("optSegments");os.innerHTML="";
-    (is.customer_segments||[]).forEach(s=>os.appendChild(el("span",{class:"pill green"},[s.name||s.id])));
-    const oa=$("optAB");oa.innerHTML="";
-    (is.ab_test_plan||[]).forEach((v,i)=>oa.appendChild(el("div",{class:"ab-card"},[
-      el("div",{class:"ab-tag"},[`Optimized ${String.fromCharCode(65+i)}`]),
-      el("div",{class:"ab-name"},[v.name||v.id]),
-      el("div",{class:"ab-hypo"},[v.hypothesis||""]),
-    ])));
-    $("optEditArea").value=`Explanation: ${opt.explanation||""}\nReasoning: ${JSON.stringify(opt.reasoning_log||{})}`;
-    S.editedOptSubjects={};S.editedOptBodies={};
-    renderEmails(opt.improved_content?.variants||[],"optEmailTabRow","optEmailTabPanels",S.editedOptSubjects,S.editedOptBodies);
+    await fetchAndRenderMetrics();
+    hideLoader();
     showSec("secMetrics");window.scrollTo({top:0,behavior:"smooth"});
   }catch(e){hideLoader();showSec("secScheduled");showErr("Metrics failed: "+e.message);setPipe(3);}
 });
 
-// ── STEP 5 ──
-$("btnOptAccept").addEventListener("click",()=>{showSec("secOptEmails");window.scrollTo({top:0,behavior:"smooth"});});
+// ── STEP 5: accept / re-optimize (stays on metrics page) ──
+$("btnOptAccept").addEventListener("click",()=>{
+  showSec("secOptEmails");window.scrollTo({top:0,behavior:"smooth"});
+});
+
+// Re-optimize — re-calls metrics, re-renders optimization cards, stays on secMetrics.
 $("btnOptRegen").addEventListener("click",async()=>{
-  showLoader("Re-optimizing…","OptimizationAgent");
+  showLoader("Re-optimizing…","OptimizationAgent re-running");
   try{
-    const data=await api("GET",`/campaigns/${S.campaignId}/metrics`);
-    S.metricsData=data;
-    const opt=data.optimization||{};
-    S.editedOptSubjects={};S.editedOptBodies={};
-    renderEmails(opt.improved_content?.variants||[],"optEmailTabRow","optEmailTabPanels",S.editedOptSubjects,S.editedOptBodies);
-    hideLoader();showSec("secOptEmails");
+    await fetchAndRenderMetrics();
+    hideLoader();
+    showSec("secMetrics");  // stay on metrics page
+    window.scrollTo({top:0,behavior:"smooth"});
   }catch(e){hideLoader();showSec("secMetrics");showErr("Re-optimization failed: "+e.message);}
 });
 
-// ── STEP 6 ──
+// ── STEP 6: approve optimized / regenerate opt emails ──
 $("btnApproveOpt").addEventListener("click",async()=>{
   showLoader("Scheduling optimized campaign…","Final wave");
   try{
@@ -1078,15 +1175,21 @@ $("btnApproveOpt").addEventListener("click",async()=>{
     launchConfetti();
   }catch(e){hideLoader();showSec("secOptEmails");showErr("Failed: "+e.message);}
 });
+
+// Regenerate optimized emails only — re-fetches metrics, re-renders opt email
+// panels only, stays on secOptEmails.
 $("btnOptEmailRegen").addEventListener("click",async()=>{
-  showLoader("Regenerating…");
+  showLoader("Regenerating optimized emails…","OptimizationAgent");
   try{
     const data=await api("GET",`/campaigns/${S.campaignId}/metrics`);
+    S.metricsData=data;
     const opt=data.optimization||{};
     S.editedOptSubjects={};S.editedOptBodies={};
     renderEmails(opt.improved_content?.variants||[],"optEmailTabRow","optEmailTabPanels",S.editedOptSubjects,S.editedOptBodies);
-    hideLoader();showSec("secOptEmails");
-  }catch(e){hideLoader();showErr("Failed: "+e.message);}
+    hideLoader();
+    showSec("secOptEmails");  // stay on opt emails
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){hideLoader();showSec("secOptEmails");showErr("Regeneration failed: "+e.message);}
 });
 
 // ── STEP 7 ──

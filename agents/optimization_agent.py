@@ -44,59 +44,59 @@ class OptimizationAgent:
             total, open_rate, click_rate,
         )
 
+        # Only send the 20 rows most useful for analysis; keep payload small
+        sample_rows = [
+            {"customer_id": r.get("customer_id", ""), "opened": r.get("opened", False), "clicked": r.get("clicked", False)}
+            for r in metrics.raw_data[:20]
+        ]
+
         metrics_summary = {
-            "campaign_id": metrics.external_campaign_id,
-            "total_rows":  metrics.total_rows,
-            "open_rate":   round(open_rate, 4),
-            "click_rate":  round(click_rate, 4),
-            "sample_rows": metrics.raw_data[:30],
+            "total": total,
+            "open_rate":  round(open_rate, 4),
+            "click_rate": round(click_rate, 4),
+            "sample":     sample_rows,
         }
 
         strategy_summary = {
-            "objective":         strategy.objective,
-            "key_messages":      strategy.key_messages,
-            "customer_segments": [
+            "objective": strategy.objective,
+            "segments": [
                 {"id": s.id, "name": s.name, "description": s.description}
                 for s in strategy.customer_segments
             ],
-            "ab_test_plan": [
+            "ab_variants": [
                 {"id": v.id, "name": v.name, "hypothesis": v.hypothesis}
                 for v in strategy.ab_test_plan
             ],
-            "risk_constraints": strategy.risk_constraints,
         }
 
-        content_summary = {
-            "variants": [
-                {"id": v.id, "segment_id": v.segment_id, "subject": v.subject, "rationale": v.rationale}
-                for v in content.variants
-            ]
-        }
+        content_summary = [
+            {"id": v.id, "segment_id": v.segment_id, "subject": v.subject}
+            for v in content.variants
+        ]
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are an AI campaign optimizer for SuperBFSI, an Indian bank. "
-                    "Analyze performance metrics and produce an improved strategy and email content. "
-                    "Respond with a single JSON object only."
+                    "You are an email campaign optimizer for SuperBFSI (Indian bank). "
+                    "Given metrics, improve strategy and write better emails. "
+                    "Reply with a single JSON object only — no markdown, no prose."
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Performance metrics:\n{json.dumps(metrics_summary, indent=2)}\n\n"
-                    f"Original strategy:\n{json.dumps(strategy_summary, indent=2)}\n\n"
-                    f"Original content:\n{json.dumps(content_summary, indent=2)}\n\n"
-                    "Return JSON with EXACTLY these keys:\n"
-                    "  improved_strategy (same shape as original strategy — all required fields)\n"
-                    "  improved_content  (object with: variants, explanation, reasoning_log)\n"
-                    "    • Each variant: id, segment_id, name, subject (≤200 chars), body_html (≤5000 chars), rationale\n"
-                    "    • Include CTA link to https://superbfsi.com/xdeposit/explore/\n"
-                    "  explanation       (string — what changed and why)\n"
-                    "  reasoning_log     (object)\n\n"
-                    "Focus: boost segments with low open/click rates by adjusting subject lines, "
-                    "timing, and offer framing. Maintain BFSI compliance."
+                    f"Metrics: {json.dumps(metrics_summary)}\n\n"
+                    f"Strategy: {json.dumps(strategy_summary)}\n\n"
+                    f"Current emails: {json.dumps(content_summary)}\n\n"
+                    "Return JSON with exactly these keys:\n"
+                    "  improved_strategy — same schema as strategy above (add key_messages, risk_constraints, send_time_decisions arrays)\n"
+                    "  improved_content  — {variants, explanation, reasoning_log}\n"
+                    "    Each variant: id, segment_id, name, subject (≤60 chars), body_html (full HTML ≤5000 chars), rationale\n"
+                    "    CTA must link to https://superbfsi.com/xdeposit/explore/\n"
+                    "  explanation   — what changed and why (1–2 sentences)\n"
+                    "  reasoning_log — object\n\n"
+                    "Improve subjects/framing for low-engagement segments. Keep RBI-compliant language."
                 ),
             },
         ]

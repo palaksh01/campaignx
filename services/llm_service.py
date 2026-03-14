@@ -64,7 +64,7 @@ class LLMService:
         logger.info("LLM request  model=%s", model)
 
         try:
-            resp = requests.post(url, headers=self._headers(), json=body, timeout=90)
+            resp = requests.post(url, headers=self._headers(), json=body, timeout=200)
         except requests.RequestException as exc:
             logger.error("LLM network error: %s", exc)
             raise

@@ -1,6 +1,8 @@
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Dict
 
 from models.schemas import (
@@ -20,7 +22,8 @@ from agents.optimization_agent import OptimizationAgent
 
 logger = logging.getLogger("campaignx.execution_agent")
 
-_IST = timezone(timedelta(hours=5, minutes=30))
+_IST        = timezone(timedelta(hours=5, minutes=30))
+_STORE_FILE = Path("campaign_store.json")
 
 
 def _ist_now_plus(hours: int = 2) -> str:
@@ -33,7 +36,8 @@ class ExecutionAgent:
     """
     Orchestrates the full campaign lifecycle:
       plan → approve/schedule → fetch metrics & optimize → approve optimized
-    State is kept in a plain in-memory dict.
+    State is persisted to campaign_store.json so server restarts/reloads
+    do not lose in-progress campaigns.
     """
 
     def __init__(
@@ -47,7 +51,30 @@ class ExecutionAgent:
         self.strategy     = strategy_agent
         self.content      = content_agent
         self.optimization = optimization_agent
-        self._store: Dict[str, CampaignState] = {}
+        self._store: Dict[str, CampaignState] = self._load_store()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _load_store(self) -> Dict[str, CampaignState]:
+        if not _STORE_FILE.exists():
+            return {}
+        try:
+            raw = json.loads(_STORE_FILE.read_text(encoding="utf-8"))
+            store = {cid: CampaignState.model_validate(data) for cid, data in raw.items()}
+            logger.info("Loaded %d campaign(s) from %s", len(store), _STORE_FILE)
+            return store
+        except Exception as exc:
+            logger.warning("Could not load campaign store (%s) — starting fresh.", exc)
+            return {}
+
+    def _save_store(self) -> None:
+        try:
+            data = {cid: state.model_dump(mode="json") for cid, state in self._store.items()}
+            _STORE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.warning("Could not persist campaign store: %s", exc)
 
     # ------------------------------------------------------------------
     # Step 1 — Plan
@@ -79,6 +106,7 @@ class ExecutionAgent:
             send_time=send_time,
         )
         self._store[campaign_id] = state
+        self._save_store()
         logger.info("Campaign stored: id=%s  send_time=%s", campaign_id, send_time)
 
         return CampaignPreviewResponse(
@@ -124,6 +152,7 @@ class ExecutionAgent:
         )
         state.send_time = send_time
         state.phase     = CampaignPhase.INITIAL_SCHEDULED
+        self._save_store()
         logger.info("Scheduled: external_campaign_id=%s", ext_id)
 
         return CampaignScheduleResponse(
@@ -191,6 +220,7 @@ class ExecutionAgent:
         state.optimized_strategy = optimization.improved_strategy
         state.optimized_content  = optimization.improved_content
         state.phase              = CampaignPhase.OPTIMIZED_DRAFT
+        self._save_store()
 
         opened  = sum(1 for r in metrics.raw_data if r.get("opened"))
         clicked = sum(1 for r in metrics.raw_data if r.get("clicked"))
@@ -239,6 +269,7 @@ class ExecutionAgent:
             raw_response=raw,
         )
         state.phase = CampaignPhase.OPTIMIZED_SCHEDULED
+        self._save_store()
         logger.info("Optimized campaign scheduled: external_campaign_id=%s", ext_id)
 
         return CampaignScheduleResponse(

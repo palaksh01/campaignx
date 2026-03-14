@@ -109,22 +109,12 @@ class ContentAgent:
         )
 
         segments_info = [
-            {
-                "id":          s.id,
-                "name":        s.name,
-                "description": s.description,
-                "criteria":    s.selection_criteria,
-            }
+            {"id": s.id, "name": s.name, "description": s.description}
             for s in strategy.customer_segments
         ]
 
         variants_to_write = [
-            {
-                "id":                 v.id,
-                "name":               v.name,
-                "hypothesis":         v.hypothesis,
-                "target_segment_ids": v.target_segment_ids,
-            }
+            {"id": v.id, "name": v.name, "hypothesis": v.hypothesis}
             for v in strategy.ab_test_plan
         ]
 
@@ -146,11 +136,10 @@ class ContentAgent:
             {
                 "role": "user",
                 "content": (
-                    f"Campaign brief:\n{brief}\n\n"
-                    f"Campaign objective: {strategy.objective}\n\n"
-                    f"Key messages: {json.dumps(strategy.key_messages)}\n\n"
-                    f"Customer segments:\n{json.dumps(segments_info, indent=2)}\n\n"
-                    f"Write one email for each of these A/B variants:\n{json.dumps(variants_to_write, indent=2)}\n\n"
+                    f"Campaign brief: {brief}\n\n"
+                    f"Objective: {strategy.objective}\n\n"
+                    f"Segments: {json.dumps(segments_info)}\n\n"
+                    f"Write one email per A/B variant: {json.dumps(variants_to_write)}\n\n"
 
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     "RETURN JSON with EXACTLY these keys:\n"
